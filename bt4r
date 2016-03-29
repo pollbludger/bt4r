@@ -1,0 +1,406 @@
+##### BludgerTrack 2016 in R. By Billy. ######
+
+
+## WORK ON ROOT FILE
+
+# Set preferences
+PrefLNP = c(0.1697,0.5367,0.5303,-0.0014)
+PrefLNP.nsw = c(0.1735,0.5395,0.5589)
+PrefLNP.vic = c(0.1417,0.5179,0.4861,-0.0011)
+PrefLNP.qld = c(0.1962,0.5518,0.5504)
+PrefLNP.sa = c(0.2009,0.4856,0.5319,-0.0009)
+PrefLNP.wa = c(0.2058,0.5488,0.5806,-0.0091)
+PrefLNP.tas = c(0.1297,0.4759,0.4312)
+PrefLNP.act = c(0.1202,0.4956,0.4261)
+PrefLNP.nt = c(0.1953,0.5745,0.5474)
+
+# Set bias adjustments
+ReachTEL.bias = c(-0.9,-1.1,0.1)
+ReachTEL.weight = ((1-pnorm(abs(ReachTEL.bias[1]),0,1.53))+(1-pnorm(abs(ReachTEL.bias[2]),0,1.53))+(1-pnorm(abs(ReachTEL.bias[3]),0,1.53)))/3
+Galaxy.bias = c(1.1,-0.1,-1.3)
+Galaxy.weight = ((1-pnorm(abs(Galaxy.bias[1]),0,1.53))+(1-pnorm(abs(Galaxy.bias[2]),0,1.53))+(1-pnorm(abs(Galaxy.bias[3]),0,1.53)))/3
+Ipsos.bias = c(-0.9,1.1,-1.2)
+Ipsos.weight = ((1-pnorm(abs(Ipsos.bias[1]),0,1.53))+(1-pnorm(abs(Ipsos.bias[2]),0,1.53))+(1-pnorm(abs(Ipsos.bias[3]),0,1.53)))/3
+Newspoll2.bias = c(0.1,-1.7,0.8)
+Newspoll2.weight = ((1-pnorm(abs(Newspoll2.bias[1]),0,1.53))+(1-pnorm(abs(Newspoll2.bias[2]),0,1.53))+(1-pnorm(abs(Newspoll2.bias[3]),0,1.53)))/3
+
+# Create a duplicate DATE in numeric, as DATE2, for use in the LOESS. Hopefully I can use just DATE for the x-axis.
+bt4r$DATE = as.Date(bt4r$DATE, "%d/%m/%Y")
+bt4r$DATE2 = as.numeric(bt4r$DATE)
+
+# Newspoll (NSW) and Ipsos (SA) adjustments
+bt4r$NSWlnp = ifelse(bt4r$POLLSTER!="Newspoll", bt4r$NSWlnp, bt4r$NSWlnp + 0.7)
+bt4r$NSWalp = ifelse(bt4r$POLLSTER!="Newspoll", bt4r$NSWalp, bt4r$NSWalp - 0.5)
+bt4r$NSWgrn = ifelse(bt4r$POLLSTER!="Newspoll", bt4r$NSWgrn, bt4r$NSWgrn - 0.3)
+bt4r$NSWpup = ifelse(bt4r$POLLSTER!="Newspoll", bt4r$NSWpup, bt4r$NSWpup + 0.1)
+bt4r$SAlnp = ifelse(bt4r$POLLSTER!="Nielsen", bt4r$SAlnp, bt4r$SAlnp + 0.2)
+bt4r$SAalp = ifelse(bt4r$POLLSTER!="Nielsen", bt4r$SAalp, bt4r$SAalp - 0.3)
+bt4r$SApup = ifelse(bt4r$POLLSTER!="Nielsen", bt4r$SApup, bt4r$SApup - 0.1)
+bt4r$NSWlnp = ifelse(bt4r$POLLSTER!="Newspoll/Galaxy", bt4r$NSWlnp, bt4r$NSWlnp + 0.7)
+bt4r$NSWalp = ifelse(bt4r$POLLSTER!="Newspoll/Galaxy", bt4r$NSWalp, bt4r$NSWalp - 0.5)
+bt4r$NSWgrn = ifelse(bt4r$POLLSTER!="Newspoll/Galaxy", bt4r$NSWgrn, bt4r$NSWgrn - 0.3)
+bt4r$NSWpup = ifelse(bt4r$POLLSTER!="Newspoll/Galaxy", bt4r$NSWpup, bt4r$NSWpup + 0.1)
+bt4r$SAlnp = ifelse(bt4r$POLLSTER!="Ipsos", bt4r$SAlnp, bt4r$SAlnp + 0.2)
+bt4r$SAalp = ifelse(bt4r$POLLSTER!="Ipsos", bt4r$SAalp, bt4r$SAalp - 0.3)
+bt4r$SApup = ifelse(bt4r$POLLSTER!="Ipsos", bt4r$SApup, bt4r$SApup - 0.1)
+
+# Fill missing values for PUP
+bt4r.pupshare = bt4r[bt4r$PUP!="NA", ]
+bt4r.pupshare = bt4r[complete.cases(bt4r$PUP), ]
+bt4r.pupshare$PUPshare = bt4r.pupshare$PUP / (bt4r.pupshare$PUP + bt4r.pupshare$OTH)
+pupshare.trend = loess(bt4r.pupshare$PUPshare~bt4r.pupshare$WEEK, span=0.5)
+bt4r$PUPshare = predict(object = pupshare.trend,newdata = bt4r$WEEK)
+bt4r$PUPshare[1] = bt4r$PUPshare[2]
+bt4r$PUP = bt4r$PUPshare * (100 - bt4r$LNP - bt4r$ALP - bt4r$GRN)
+bt4r$OTH = 100 - (bt4r$LNP + bt4r$ALP + bt4r$GRN + bt4r$PUP)
+bt4r$PUPbase = bt4r$PUP
+bt4r$OTHbase = 100 - (bt4r$LNPbase + bt4r$ALPbase + bt4r$GRNbase + bt4r$PUPbase)
+bt4r = bt4r[,-(ncol(bt4r))]
+rm(bt4r.pupshare, pupshare.trend)
+
+
+### WORK ON .MT FILE
+
+bt4r.mt = bt4r[bt4r$DATE2 >= 16693, ]
+
+## NATIONAL OUTPUT
+
+# Generate trend-benchmarked Essential and Morgan bias adjustments
+bt4r.biasbase = bt4r.mt[bt4r.mt$POLLSTER!="Essential" & bt4r.mt$POLLSTER!="Morgan", ]
+bt4r.biasbase$LNPbias = ifelse(bt4r.biasbase$POLLSTER=="ReachTEL", ReachTEL.bias[1], ifelse(bt4r.biasbase$POLLSTER=="Galaxy", Galaxy.bias[1], ifelse(bt4r.biasbase$POLLSTER=="Ipsos", Ipsos.bias[1], Newspoll2.bias[1])))
+bt4r.biasbase$ALPbias = ifelse(bt4r.biasbase$POLLSTER=="ReachTEL", ReachTEL.bias[2], ifelse(bt4r.biasbase$POLLSTER=="Galaxy", Galaxy.bias[2], ifelse(bt4r.biasbase$POLLSTER=="Ipsos", Ipsos.bias[2], Newspoll2.bias[2])))
+bt4r.biasbase$GRNbias = ifelse(bt4r.biasbase$POLLSTER=="ReachTEL", ReachTEL.bias[3], ifelse(bt4r.biasbase$POLLSTER=="Galaxy", Galaxy.bias[3], ifelse(bt4r.biasbase$POLLSTER=="Ipsos", Ipsos.bias[3], Newspoll2.bias[3])))
+bt4r.biasbase$LNP = bt4r.biasbase$LNP + bt4r.biasbase$LNPbias
+bt4r.biasbase$ALP = bt4r.biasbase$ALP + bt4r.biasbase$ALPbias
+bt4r.biasbase$GRN = bt4r.biasbase$GRN + bt4r.biasbase$GRNbias
+biasbase.lnptrend = loess(bt4r.biasbase$LNP~bt4r.biasbase$WEEK, span=0.5)
+biasbase.alptrend = loess(bt4r.biasbase$ALP~bt4r.biasbase$WEEK, span=0.5)
+biasbase.grntrend = loess(bt4r.biasbase$GRN~bt4r.biasbase$WEEK, span=0.5)
+lnptrend.output = predict(object = biasbase.lnptrend,newdata = bt4r.mt$WEEK)
+alptrend.output = predict(object = biasbase.alptrend,newdata = bt4r.mt$WEEK)
+grntrend.output = predict(object = biasbase.grntrend,newdata = bt4r.mt$WEEK)
+bt4r.biascalc = bt4r.mt[bt4r.mt$POLLSTER=="Essential"|bt4r.mt$POLLSTER=="Morgan", ]
+bt4r.biascalc$LNPtrend = predict(object = biasbase.lnptrend,newdata = bt4r.biascalc$WEEK)
+bt4r.biascalc$ALPtrend = predict(object = biasbase.alptrend,newdata = bt4r.biascalc$WEEK)
+bt4r.biascalc$GRNtrend = predict(object = biasbase.grntrend,newdata = bt4r.biascalc$WEEK)
+bt4r.biascalc$LNPcorrect = bt4r.biascalc$LNPtrend - bt4r.biascalc$LNP
+bt4r.biascalc$ALPcorrect = bt4r.biascalc$ALPtrend - bt4r.biascalc$ALP
+bt4r.biascalc$GRNcorrect = bt4r.biascalc$GRNtrend - bt4r.biascalc$GRN
+Essential.bias = c(mean(bt4r.biascalc$LNPcorrect[bt4r.biascalc$POLLSTER=="Essential"]),mean(bt4r.biascalc$ALPcorrect[bt4r.biascalc$POLLSTER=="Essential"]),mean(bt4r.biascalc$GRNcorrect[bt4r.biascalc$POLLSTER=="Essential"]))
+Essential.weight = ((1-pnorm(abs(Essential.bias[1]),0,1.53))+(1-pnorm(abs(Essential.bias[2]),0,1.53))+(1-pnorm(abs(Essential.bias[3]),0,1.53)))/3
+Morgan.bias = c(mean(bt4r.biascalc$LNPcorrect[bt4r.biascalc$POLLSTER=="Morgan"]),mean(bt4r.biascalc$ALPcorrect[bt4r.biascalc$POLLSTER=="Morgan"]),mean(bt4r.biascalc$GRNcorrect[bt4r.biascalc$POLLSTER=="Morgan"]))
+Morgan.weight = ((1-pnorm(abs(Morgan.bias[1]),0,1.53))+(1-pnorm(abs(Morgan.bias[2]),0,1.53))+(1-pnorm(abs(Morgan.bias[3]),0,1.53)))/3
+rm(biasbase.lnptrend, biasbase.alptrend, biasbase.grntrend, lnptrend.output, alptrend.output, grntrend.output)
+rm(bt4r.biasbase, bt4r.biascalc)
+
+# Generate bias variables and weights
+bt4r.mt$LNPbias = ifelse(bt4r.mt$POLLSTER=="ReachTEL", ReachTEL.bias[1], ifelse(bt4r.mt$POLLSTER=="Galaxy", Galaxy.bias[1], ifelse(bt4r.mt$POLLSTER=="Ipsos", Ipsos.bias[1], ifelse(bt4r.mt$POLLSTER=="Essential", Essential.bias[1], ifelse(bt4r.mt$POLLSTER=="Morgan", Morgan.bias[1], Newspoll2.bias[1])))))
+bt4r.mt$ALPbias = ifelse(bt4r.mt$POLLSTER=="ReachTEL", ReachTEL.bias[2], ifelse(bt4r.mt$POLLSTER=="Galaxy", Galaxy.bias[2], ifelse(bt4r.mt$POLLSTER=="Ipsos", Ipsos.bias[2], ifelse(bt4r.mt$POLLSTER=="Essential", Essential.bias[2], ifelse(bt4r.mt$POLLSTER=="Morgan", Morgan.bias[2], Newspoll2.bias[2])))))
+bt4r.mt$GRNbias = ifelse(bt4r.mt$POLLSTER=="ReachTEL", ReachTEL.bias[3], ifelse(bt4r.mt$POLLSTER=="Galaxy", Galaxy.bias[3], ifelse(bt4r.mt$POLLSTER=="Ipsos", Ipsos.bias[3], ifelse(bt4r.mt$POLLSTER=="Essential", Essential.bias[3], ifelse(bt4r.mt$POLLSTER=="Morgan", Morgan.bias[3], Newspoll2.bias[3])))))
+bt4r.mt$WEIGHT = ((1-pnorm(abs(bt4r.mt$LNPbias),0,1.53))+(1-pnorm(abs(bt4r.mt$ALPbias),0,1.53))+(1-pnorm(abs(bt4r.mt$GRNbias),0,1.53)))/3
+bt4r.mt$WEIGHT = ifelse(bt4r.mt$POLLSTER=="Morgan", bt4r.mt$WEIGHT/2, ifelse(bt4r.mt$POLLSTER=="Essential", bt4r.mt$WEIGHT/2, bt4r.mt$WEIGHT))
+
+# Generate input values
+bt4r.mt$LNPinput = bt4r.mt$LNP + bt4r.mt$LNPbias
+bt4r.mt$ALPinput = bt4r.mt$ALP + bt4r.mt$ALPbias
+bt4r.mt$GRNinput = bt4r.mt$GRN + bt4r.mt$GRNbias
+bt4r.mt$PUPinput = bt4r.mt$PUP
+
+# Generate national result output
+lnp.trend = loess(bt4r.mt$LNPinput~bt4r.mt$DATE2, span=0.5)
+alp.trend = loess(bt4r.mt$ALPinput~bt4r.mt$DATE2, span=0.5)
+grn.trend = loess(bt4r.mt$GRNinput~bt4r.mt$DATE2, span=0.5)
+pup.trend = loess(bt4r.mt$PUPinput~bt4r.mt$DATE2, span=0.5)
+bt4r.mt$LNPtrend = predict(object = lnp.trend,newdata = bt4r.mt$DATE2)
+bt4r.mt$ALPtrend = predict(object = alp.trend,newdata = bt4r.mt$DATE2)
+bt4r.mt$GRNtrend = predict(object = grn.trend,newdata = bt4r.mt$DATE2)
+bt4r.mt$PUPtrend = predict(object = pup.trend,newdata = bt4r.mt$DATE2)
+bt4r.mt$OTHtrend = 100 - (bt4r.mt$LNPtrend + bt4r.mt$ALPtrend + bt4r.mt$GRNtrend + bt4r.mt$PUPtrend)
+bt4r.mt$LNP2trend = bt4r.mt$LNPtrend + (bt4r.mt$GRNtrend * PrefLNP[1]) + (bt4r.mt$PUPtrend * PrefLNP[2]) + (bt4r.mt$OTHtrend * PrefLNP[3]) + PrefLNP[4]
+
+# Generate respondent-allocated
+bt4r.respondent = bt4r[bt4r$LNPshare > 0, ]
+respondent.trend = loess(bt4r.respondent$LNPshare~bt4r.respondent$WEEK, span=0.5)
+bt4r.mt$LNPshare = predict(object = respondent.trend,newdata = bt4r.mt$WEEK)
+bt4r.mt$LNP2RAtrend = bt4r.mt$LNPtrend + ((bt4r.mt$GRNtrend + bt4r.mt$PUPtrend + bt4r.mt$OTHtrend) * (bt4r.mt$LNPshare / 100))
+rm(bt4r.respondent)
+
+## STATE OUTPUT
+
+# Fill the Newspoll PUP and Morgan state pup gaps
+nsw.grnweek = loess(bt4r.mt$NSWgrn~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$NSWgrnweek = predict(object = nsw.grnweek,newdata = bt4r.mt$WEEK)
+nsw.pupweek = loess(bt4r.mt$NSWpup~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$NSWpupweek = predict(object = nsw.pupweek,newdata = bt4r.mt$WEEK)
+nsw.othweek = loess(bt4r.mt$NSWoth~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$NSWothweek = predict(object = nsw.othweek,newdata = bt4r.mt$WEEK)
+
+vic.grnweek = loess(bt4r.mt$VICgrn~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$VICgrnweek = predict(object = vic.grnweek,newdata = bt4r.mt$WEEK)
+vic.pupweek = loess(bt4r.mt$VICpup~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$VICpupweek = predict(object = vic.pupweek,newdata = bt4r.mt$WEEK)
+vic.othweek = loess(bt4r.mt$VICoth~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$VICothweek = predict(object = vic.othweek,newdata = bt4r.mt$WEEK)
+
+qld.grnweek = loess(bt4r.mt$QLDgrn~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$QLDgrnweek = predict(object = qld.grnweek,newdata = bt4r.mt$WEEK)
+qld.pupweek = loess(bt4r.mt$QLDpup~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$QLDpupweek = predict(object = qld.pupweek,newdata = bt4r.mt$WEEK)
+qld.othweek = loess(bt4r.mt$QLDoth~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$QLDothweek = predict(object = qld.othweek,newdata = bt4r.mt$WEEK)
+
+sa.grnweek = loess(bt4r.mt$SAgrn~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$SAgrnweek = predict(object = sa.grnweek,newdata = bt4r.mt$WEEK)
+sa.pupweek = loess(bt4r.mt$SApup~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$SApupweek = predict(object = sa.pupweek,newdata = bt4r.mt$WEEK)
+sa.othweek = loess(bt4r.mt$SAoth~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$SAothweek = predict(object = sa.othweek,newdata = bt4r.mt$WEEK)
+
+wa.grnweek = loess(bt4r.mt$WAgrn~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$WAgrnweek = predict(object = wa.grnweek,newdata = bt4r.mt$WEEK)
+wa.pupweek = loess(bt4r.mt$WApup~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$WApupweek = predict(object = wa.pupweek,newdata = bt4r.mt$WEEK)
+wa.othweek = loess(bt4r.mt$WAoth~bt4r.mt$WEEK, span=0.5)
+bt4r.mt$WAothweek = predict(object = wa.othweek,newdata = bt4r.mt$WEEK)
+
+bt4r.mt$NSWgrn = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$NSWgrn, bt4r.mt$NSWgrnweek)
+bt4r.mt$NSWpup = ifelse(bt4r.mt$POLLSTER!="Morgan" & bt4r.mt$POLLSTER!="Newspoll/Galaxy", bt4r.mt$NSWpup, bt4r.mt$NSWpupweek)
+bt4r.mt$NSWoth = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$NSWoth, bt4r.mt$NSWothweek)
+bt4r.mt$NSWlnp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$NSWlnp, ((bt4r.mt$NSWlnp2-bt4r.mt$LNPra) + bt4r.mt$LNP2) - (bt4r.mt$NSWgrn * PrefLNP.nsw[1]) - (bt4r.mt$NSWpup * PrefLNP.nsw[2]) - (bt4r.mt$NSWoth * PrefLNP.nsw[3]))
+bt4r.mt$NSWalp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$NSWalp, 100-(bt4r.mt$NSWlnp + bt4r.mt$NSWgrn + bt4r.mt$NSWpup + bt4r.mt$NSWoth))
+bt4r.mt$NSWoth = 100 - (bt4r.mt$NSWlnp + bt4r.mt$NSWalp + bt4r.mt$NSWgrn + bt4r.mt$NSWpup)
+
+bt4r.mt$VICgrn = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$VICgrn, bt4r.mt$VICgrnweek)
+bt4r.mt$VICpup = ifelse(bt4r.mt$POLLSTER!="Morgan" & bt4r.mt$POLLSTER!="Newspoll/Galaxy", bt4r.mt$VICpup, bt4r.mt$VICpupweek)
+bt4r.mt$VICoth = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$VICoth, bt4r.mt$VICothweek)
+bt4r.mt$VIClnp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$VIClnp, ((bt4r.mt$VIClnp2-bt4r.mt$LNPra) + bt4r.mt$LNP2) - (bt4r.mt$VICgrn * PrefLNP.vic[1]) - (bt4r.mt$VICpup * PrefLNP.vic[2]) - (bt4r.mt$VICoth * PrefLNP.vic[3]))
+bt4r.mt$VICalp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$VICalp, 100-(bt4r.mt$VIClnp + bt4r.mt$VICgrn + bt4r.mt$VICpup + bt4r.mt$VICoth))
+bt4r.mt$VICoth = 100 - (bt4r.mt$VIClnp + bt4r.mt$VICalp + bt4r.mt$VICgrn + bt4r.mt$VICpup)
+
+bt4r.mt$QLDgrn = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$QLDgrn, bt4r.mt$QLDgrnweek)
+bt4r.mt$QLDpup = ifelse(bt4r.mt$POLLSTER!="Morgan" & bt4r.mt$POLLSTER!="Newspoll/Galaxy", bt4r.mt$QLDpup, bt4r.mt$QLDpupweek)
+bt4r.mt$QLDoth = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$QLDoth, bt4r.mt$QLDothweek)
+bt4r.mt$QLDlnp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$QLDlnp, ((bt4r.mt$QLDlnp2-bt4r.mt$LNPra) + bt4r.mt$LNP2) - (bt4r.mt$QLDgrn * PrefLNP.qld[1]) - (bt4r.mt$QLDpup * PrefLNP.qld[2]) - (bt4r.mt$QLDoth * PrefLNP.qld[3]))
+bt4r.mt$QLDalp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$QLDalp, 100-(bt4r.mt$QLDlnp + bt4r.mt$QLDgrn + bt4r.mt$QLDpup + bt4r.mt$QLDoth))
+bt4r.mt$QLDoth = 100 - (bt4r.mt$QLDlnp + bt4r.mt$QLDalp + bt4r.mt$QLDgrn + bt4r.mt$QLDpup)
+
+bt4r.mt$SAgrn = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$SAgrn, bt4r.mt$SAgrnweek)
+bt4r.mt$SApup = ifelse(bt4r.mt$POLLSTER!="Morgan" & bt4r.mt$POLLSTER!="Newspoll/Galaxy", bt4r.mt$SApup, bt4r.mt$SApupweek)
+bt4r.mt$SAoth = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$SAoth, bt4r.mt$SAothweek)
+bt4r.mt$SAlnp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$SAlnp, ((bt4r.mt$SAlnp2-bt4r.mt$LNPra) + bt4r.mt$LNP2) - (bt4r.mt$SAgrn * PrefLNP.sa[1]) - (bt4r.mt$SApup * PrefLNP.sa[2]) - (bt4r.mt$SAoth * PrefLNP.sa[3]))
+bt4r.mt$SAalp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$SAalp, 100-(bt4r.mt$SAlnp + bt4r.mt$SAgrn + bt4r.mt$SApup + bt4r.mt$SAoth))
+bt4r.mt$SAoth = 100 - (bt4r.mt$SAlnp + bt4r.mt$SAalp + bt4r.mt$SAgrn + bt4r.mt$SApup)
+
+bt4r.mt$WAgrn = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$WAgrn, bt4r.mt$WAgrnweek)
+bt4r.mt$WApup = ifelse(bt4r.mt$POLLSTER!="Morgan" & bt4r.mt$POLLSTER!="Newspoll/Galaxy", bt4r.mt$WApup, bt4r.mt$WApupweek)
+bt4r.mt$WAoth = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$WAoth, bt4r.mt$WAothweek)
+bt4r.mt$WAlnp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$WAlnp, ((bt4r.mt$WAlnp2-bt4r.mt$LNPra) + bt4r.mt$LNP2) - (bt4r.mt$WAgrn * PrefLNP.wa[1]) - (bt4r.mt$WApup * PrefLNP.wa[2]) - (bt4r.mt$WAoth * PrefLNP.wa[3]))
+bt4r.mt$WAalp = ifelse(bt4r.mt$POLLSTER!="Morgan", bt4r.mt$WAalp, 100-(bt4r.mt$WAlnp + bt4r.mt$WAgrn + bt4r.mt$WApup + bt4r.mt$WAoth))
+bt4r.mt$WAoth = 100 - (bt4r.mt$WAlnp + bt4r.mt$WAalp + bt4r.mt$WAgrn + bt4r.mt$WApup)
+
+bt4r.mt = bt4r.mt[, -(which(( colnames(bt4r.mt)=="NTlnp" ) +1):ncol(bt4r.mt))]
+
+
+### WEEKLY OUTPUT
+
+## Set up data frame/input file
+
+bt4r.weeklyoutput = data.frame(
+WEEK=(c(106:max(bt4r$WEEK))),
+DATE=0,
+DATE2=0)
+bt4r.weeklyoutput$DATE2 = 16692 + ((bt4r.weeklyoutput$WEEK - 106) * 7)
+bt4r.weeklyoutput$DATE = as.Date(bt4r.weeklyoutput$DATE2, origin = "1970-01-01")
+
+## Add national results
+
+lnp.wktrend = loess(bt4r.mt$LNPinput~bt4r.mt$WEEK, span=0.5)
+alp.wktrend = loess(bt4r.mt$ALPinput~bt4r.mt$WEEK, span=0.5)
+grn.wktrend = loess(bt4r.mt$GRNinput~bt4r.mt$WEEK, span=0.5)
+pup.wktrend = loess(bt4r.mt$PUPinput~bt4r.mt$WEEK, span=0.5)
+bt4r.weeklyoutput$LNP = predict(object = lnp.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$ALP = predict(object = alp.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$GRN = predict(object = grn.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$PUP = predict(object = pup.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$OTH = 100 - (bt4r.weeklyoutput$LNP + bt4r.weeklyoutput$ALP + bt4r.weeklyoutput$GRN + bt4r.weeklyoutput$PUP)
+bt4r.weeklyoutput$LNP2 = bt4r.weeklyoutput$LNP + (bt4r.weeklyoutput$GRN * PrefLNP[1]) + (bt4r.weeklyoutput$PUP * PrefLNP[2]) + (bt4r.weeklyoutput$OTH * PrefLNP[3]) + PrefLNP[4]
+bt4r.weeklyoutput$ALP2 = 100 - bt4r.weeklyoutput$LNP2
+bt4r.weeklyoutput$LNPra = bt4r.weeklyoutput$LNP + ((bt4r.weeklyoutput$GRN + bt4r.weeklyoutput$PUP + bt4r.weeklyoutput$OTH) * ((predict(object = respondent.trend,newdata = bt4r.weeklyoutput$WEEK))/100))
+bt4r.weeklyoutput$ALPra = 100 - bt4r.weeklyoutput$LNPra
+
+## Add major states
+
+bt4r.bulk = bt4r.mt[bt4r.mt$POLLSTER!="Galaxy", ]
+
+# Set up BULK with differences
+bt4r.bulk$NSWlnpdev = bt4r.bulk$NSWlnp - bt4r.bulk$LNP
+bt4r.bulk$NSWalpdev = bt4r.bulk$NSWalp - bt4r.bulk$ALP
+bt4r.bulk$NSWgrndev = bt4r.bulk$NSWgrn - bt4r.bulk$GRN
+bt4r.bulk$NSWpupdev = bt4r.bulk$NSWpup - bt4r.bulk$PUP
+bt4r.bulk$VIClnpdev = bt4r.bulk$VIClnp - bt4r.bulk$LNP
+bt4r.bulk$VICalpdev = bt4r.bulk$VICalp - bt4r.bulk$ALP
+bt4r.bulk$VICgrndev = bt4r.bulk$VICgrn - bt4r.bulk$GRN
+bt4r.bulk$VICpupdev = bt4r.bulk$VICpup - bt4r.bulk$PUP
+bt4r.bulk$SAlnpdev = bt4r.bulk$SAlnp - bt4r.bulk$LNP
+bt4r.bulk$SAalpdev = bt4r.bulk$SAalp - bt4r.bulk$ALP
+bt4r.bulk$SAgrndev = bt4r.bulk$SAgrn - bt4r.bulk$GRN
+bt4r.bulk$SApupdev = bt4r.bulk$SApup - bt4r.bulk$PUP
+bt4r.bulk$WAlnpdev = bt4r.bulk$WAlnp - bt4r.bulk$LNP
+bt4r.bulk$WAalpdev = bt4r.bulk$WAalp - bt4r.bulk$ALP
+bt4r.bulk$WAgrndev = bt4r.bulk$WAgrn - bt4r.bulk$GRN
+bt4r.bulk$WApupdev = bt4r.bulk$WApup - bt4r.bulk$PUP
+
+# Generate trends
+NSWlnpdev.wktrend = loess(bt4r.bulk$NSWlnpdev~bt4r.bulk$WEEK, span=0.5)
+NSWalpdev.wktrend = loess(bt4r.bulk$NSWalpdev~bt4r.bulk$WEEK, span=0.5)
+NSWgrndev.wktrend = loess(bt4r.bulk$NSWgrndev~bt4r.bulk$WEEK, span=0.5)
+NSWpupdev.wktrend = loess(bt4r.bulk$NSWpupdev~bt4r.bulk$WEEK, span=0.5)
+VIClnpdev.wktrend = loess(bt4r.bulk$VIClnpdev~bt4r.bulk$WEEK, span=0.5)
+VICalpdev.wktrend = loess(bt4r.bulk$VICalpdev~bt4r.bulk$WEEK, span=0.5)
+VICgrndev.wktrend = loess(bt4r.bulk$VICgrndev~bt4r.bulk$WEEK, span=0.5)
+VICpupdev.wktrend = loess(bt4r.bulk$VICpupdev~bt4r.bulk$WEEK, span=0.5)
+SAlnpdev.wktrend = loess(bt4r.bulk$SAlnpdev~bt4r.bulk$WEEK, span=0.5)
+SAalpdev.wktrend = loess(bt4r.bulk$SAalpdev~bt4r.bulk$WEEK, span=0.5)
+SAgrndev.wktrend = loess(bt4r.bulk$SAgrndev~bt4r.bulk$WEEK, span=0.5)
+SApupdev.wktrend = loess(bt4r.bulk$SApupdev~bt4r.bulk$WEEK, span=0.5)
+WAlnpdev.wktrend = loess(bt4r.bulk$WAlnpdev~bt4r.bulk$WEEK, span=0.5)
+WAalpdev.wktrend = loess(bt4r.bulk$WAalpdev~bt4r.bulk$WEEK, span=0.5)
+WAgrndev.wktrend = loess(bt4r.bulk$WAgrndev~bt4r.bulk$WEEK, span=0.5)
+WApupdev.wktrend = loess(bt4r.bulk$WApupdev~bt4r.bulk$WEEK, span=0.5)
+
+# Output
+bt4r.weeklyoutput$NSWlnp = bt4r.weeklyoutput$LNP + predict(object = NSWlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NSWalp = bt4r.weeklyoutput$ALP + predict(object = NSWalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NSWgrn = bt4r.weeklyoutput$GRN + predict(object = NSWgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NSWpup = bt4r.weeklyoutput$PUP + predict(object = NSWpupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NSWpup = ifelse (bt4r.weeklyoutput$NSWpup < 0, 0, bt4r.weeklyoutput$NSWpup)
+bt4r.weeklyoutput$NSWoth = 100 - (bt4r.weeklyoutput$NSWlnp + bt4r.weeklyoutput$NSWalp + bt4r.weeklyoutput$NSWgrn + bt4r.weeklyoutput$NSWpup)
+bt4r.weeklyoutput$NSWlnp2 = bt4r.weeklyoutput$NSWlnp + (bt4r.weeklyoutput$NSWgrn * PrefLNP.nsw[1]) + (bt4r.weeklyoutput$NSWpup * PrefLNP.nsw[2]) + (bt4r.weeklyoutput$NSWoth * PrefLNP.nsw[3]) + PrefLNP.nsw[4]
+bt4r.weeklyoutput$VIClnp = bt4r.weeklyoutput$LNP + predict(object = VIClnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$VICalp = bt4r.weeklyoutput$ALP + predict(object = VICalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$VICgrn = bt4r.weeklyoutput$GRN + predict(object = VICgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$VICpup = bt4r.weeklyoutput$PUP + predict(object = VICpupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$VICpup = ifelse (bt4r.weeklyoutput$VICpup < 0, 0, bt4r.weeklyoutput$VICpup)
+bt4r.weeklyoutput$VICoth = 100 - (bt4r.weeklyoutput$VIClnp + bt4r.weeklyoutput$VICalp + bt4r.weeklyoutput$VICgrn + bt4r.weeklyoutput$VICpup)
+bt4r.weeklyoutput$VIClnp2 = bt4r.weeklyoutput$VIClnp + (bt4r.weeklyoutput$VICgrn * PrefLNP.vic[1]) + (bt4r.weeklyoutput$VICpup * PrefLNP.vic[2]) + (bt4r.weeklyoutput$VICoth * PrefLNP.vic[3]) + PrefLNP.vic[4]
+bt4r.weeklyoutput$QLDlnp = 0
+bt4r.weeklyoutput$QLDalp = 0
+bt4r.weeklyoutput$QLDgrn = 0
+bt4r.weeklyoutput$QLDpup = 0
+bt4r.weeklyoutput$QLDoth = 0
+bt4r.weeklyoutput$QLDlnp2 = 0
+bt4r.weeklyoutput$WAlnp = bt4r.weeklyoutput$LNP + predict(object = WAlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$WAalp = bt4r.weeklyoutput$ALP + predict(object = WAalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$WAgrn = bt4r.weeklyoutput$GRN + predict(object = WAgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$WApup = bt4r.weeklyoutput$PUP + predict(object = WApupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$WApup = ifelse (bt4r.weeklyoutput$WApup < 0, 0, bt4r.weeklyoutput$WApup)
+bt4r.weeklyoutput$WAoth = 100 - (bt4r.weeklyoutput$WAlnp + bt4r.weeklyoutput$WAalp + bt4r.weeklyoutput$WAgrn + bt4r.weeklyoutput$WApup)
+bt4r.weeklyoutput$WAlnp2 = bt4r.weeklyoutput$WAlnp + (bt4r.weeklyoutput$WAgrn * PrefLNP.wa[1]) + (bt4r.weeklyoutput$WApup * PrefLNP.wa[2]) + (bt4r.weeklyoutput$WAoth * PrefLNP.wa[3]) + PrefLNP.wa[4]
+bt4r.weeklyoutput$SAlnp = bt4r.weeklyoutput$LNP + predict(object = SAlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$SAalp = bt4r.weeklyoutput$ALP + predict(object = SAalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$SAgrn = bt4r.weeklyoutput$GRN + predict(object = SAgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$SApup = bt4r.weeklyoutput$PUP + predict(object = SApupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$SApup = ifelse (bt4r.weeklyoutput$SApup < 0, 0, bt4r.weeklyoutput$SApup)
+bt4r.weeklyoutput$SAoth = 100 - (bt4r.weeklyoutput$SAlnp + bt4r.weeklyoutput$SAalp + bt4r.weeklyoutput$SAgrn + bt4r.weeklyoutput$SApup)
+bt4r.weeklyoutput$SAlnp2 = bt4r.weeklyoutput$SAlnp + (bt4r.weeklyoutput$SAgrn * PrefLNP.sa[1]) + (bt4r.weeklyoutput$SApup * PrefLNP.sa[2]) + (bt4r.weeklyoutput$SAoth * PrefLNP.sa[3]) + PrefLNP.sa[4]
+
+## Add Queensland
+
+bt4r.qld = bt4r.mt[bt4r.mt$QLDsample > 0, ]
+
+bt4r.qld$QLDlnpdev = bt4r.qld$QLDlnp - bt4r.qld$LNP
+bt4r.qld$QLDalpdev = bt4r.qld$QLDalp - bt4r.qld$ALP
+bt4r.qld$QLDgrndev = bt4r.qld$QLDgrn - bt4r.qld$GRN
+bt4r.qld$QLDpupdev = bt4r.qld$QLDpup - bt4r.qld$PUP
+
+QLDlnpdev.wktrend = loess(bt4r.bulk$QLDlnpdev~bt4r.bulk$WEEK, span=0.5)
+QLDalpdev.wktrend = loess(bt4r.bulk$QLDalpdev~bt4r.bulk$WEEK, span=0.5)
+QLDgrndev.wktrend = loess(bt4r.bulk$QLDgrndev~bt4r.bulk$WEEK, span=0.5)
+QLDpupdev.wktrend = loess(bt4r.bulk$QLDpupdev~bt4r.bulk$WEEK, span=0.5)
+
+bt4r.weeklyoutput$QLDlnp = bt4r.weeklyoutput$LNP + predict(object = QLDlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$QLDalp = bt4r.weeklyoutput$ALP + predict(object = QLDalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$QLDgrn = bt4r.weeklyoutput$GRN + predict(object = QLDgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$QLDpup = bt4r.weeklyoutput$PUP + predict(object = QLDpupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$QLDpup = ifelse (bt4r.weeklyoutput$QLDpup < 0, 0, bt4r.weeklyoutput$QLDpup)
+bt4r.weeklyoutput$QLDoth = 100 - (bt4r.weeklyoutput$QLDlnp + bt4r.weeklyoutput$QLDalp + bt4r.weeklyoutput$QLDgrn + bt4r.weeklyoutput$QLDpup)
+bt4r.weeklyoutput$QLDlnp2 = bt4r.weeklyoutput$QLDlnp + (bt4r.weeklyoutput$QLDgrn * PrefLNP.qld[1]) + (bt4r.weeklyoutput$QLDpup * PrefLNP.qld[2]) + (bt4r.weeklyoutput$QLDoth * PrefLNP.qld[3])
+
+## Add Tasmania
+
+# Create datasets for Tasmania and the territories
+bt4r.tas = bt4r[bt4r$TASSample > 0, ]
+bt4r.reachtel = bt4r[bt4r$POLLSTER=="ReachTEL", ]
+bt4r.reachtel$ACTlnp = bt4r.reachtel$ACTlnp - 11
+bt4r.reachtel$ACTalp = bt4r.reachtel$ACTalp + 8.2
+bt4r.reachtel$ACTgrn = bt4r.reachtel$ACTgrn + 2.8
+bt4r.reachtel$ACTpup = bt4r.reachtel$ACTpup - 0.1
+bt4r.reachtel$NTlnp = bt4r.reachtel$NTlnp - 8.1
+bt4r.reachtel$NTalp = bt4r.reachtel$NTalp + 3.5
+bt4r.reachtel$NTgrn = bt4r.reachtel$NTgrn + 3.0
+bt4r.reachtel$NTpup = bt4r.reachtel$NTpup - 1.3
+
+TASgrn.wktrend = loess(bt4r.reachtel$TASgrn~bt4r.reachtel$WEEK, span=0.5)
+TASpup.wktrend = loess(bt4r.reachtel$TASpup~bt4r.reachtel$WEEK, span=0.5)
+TASoth.wktrend = loess(bt4r.reachtel$TASoth~bt4r.reachtel$WEEK, span=0.5)
+bt4r.tas$TASgrn = ifelse(bt4r.tas$POLLSTER=="ReachTEL", bt4r.tas$TASgrn, predict(object = TASgrn.wktrend,newdata = bt4r.tas$WEEK))
+bt4r.tas$TASpup = ifelse(bt4r.tas$POLLSTER=="ReachTEL", bt4r.tas$TASpup, predict(object = TASpup.wktrend,newdata = bt4r.tas$WEEK))
+bt4r.tas$TASoth = ifelse(bt4r.tas$POLLSTER=="ReachTEL", bt4r.tas$TASoth, predict(object = TASoth.wktrend,newdata = bt4r.tas$WEEK))
+bt4r.tas$TASlnp = ifelse(bt4r.tas$POLLSTER=="ReachTEL", bt4r.tas$TASlnp, ((bt4r.tas$TASlnp2-bt4r.tas$LNPra) + bt4r.tas$LNP2) - (bt4r.tas$TASgrn * PrefLNP.tas[1]) - (bt4r.tas$TASpup * PrefLNP.tas[2]) - (bt4r.tas$TASoth * PrefLNP.tas[3]))
+bt4r.tas$TASalp = ifelse(bt4r.tas$POLLSTER!="Morgan", bt4r.tas$TASalp, 100-(bt4r.tas$TASlnp + bt4r.tas$TASgrn + bt4r.tas$TASpup + bt4r.tas$TASoth))
+
+bt4r.tas$TASlnpdev = bt4r.tas$TASlnp - bt4r.tas$LNP
+bt4r.tas$TASalpdev = bt4r.tas$TASalp - bt4r.tas$ALP
+bt4r.tas$TASgrndev = bt4r.tas$TASgrn - bt4r.tas$GRN
+bt4r.tas$TASpupdev = bt4r.tas$TASpup - bt4r.tas$PUP
+
+TASlnpdev.wktrend = loess(bt4r.tas$TASlnpdev~bt4r.tas$WEEK, span=0.5)
+TASalpdev.wktrend = loess(bt4r.tas$TASalpdev~bt4r.tas$WEEK, span=0.5)
+TASgrndev.wktrend = loess(bt4r.tas$TASgrndev~bt4r.tas$WEEK, span=0.5)
+TASpupdev.wktrend = loess(bt4r.tas$TASpupdev~bt4r.tas$WEEK, span=0.5)
+
+bt4r.weeklyoutput$TASlnp = bt4r.weeklyoutput$LNP + predict(object = TASlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$TASalp = bt4r.weeklyoutput$ALP + predict(object = TASalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$TASgrn = bt4r.weeklyoutput$GRN + predict(object = TASgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$TASpup = bt4r.weeklyoutput$PUP + predict(object = TASpupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$TASpup = ifelse (bt4r.weeklyoutput$TASpup < 0, 0, bt4r.weeklyoutput$TASpup)
+bt4r.weeklyoutput$TASoth = 100 - (bt4r.weeklyoutput$TASlnp + bt4r.weeklyoutput$TASalp + bt4r.weeklyoutput$TASgrn + bt4r.weeklyoutput$TASpup)
+bt4r.weeklyoutput$TASlnp2 = bt4r.weeklyoutput$TASlnp + (bt4r.weeklyoutput$TASgrn * PrefLNP.tas[1]) + (bt4r.weeklyoutput$TASpup * PrefLNP.tas[2]) + (bt4r.weeklyoutput$TASoth * PrefLNP.tas[3])
+
+## Add Territories
+
+bt4r.reachtel$ACTlnpdev = bt4r.reachtel$ACTlnp - bt4r.reachtel$LNP
+bt4r.reachtel$ACTalpdev = bt4r.reachtel$ACTalp - bt4r.reachtel$ALP
+bt4r.reachtel$ACTgrndev = bt4r.reachtel$ACTgrn - bt4r.reachtel$GRN
+bt4r.reachtel$ACTpupdev = bt4r.reachtel$ACTpup - bt4r.reachtel$PUP
+
+bt4r.reachtel$NTlnpdev = bt4r.reachtel$NTlnp - bt4r.reachtel$LNP
+bt4r.reachtel$NTalpdev = bt4r.reachtel$NTalp - bt4r.reachtel$ALP
+bt4r.reachtel$NTgrndev = bt4r.reachtel$NTgrn - bt4r.reachtel$GRN
+bt4r.reachtel$NTpupdev = bt4r.reachtel$NTpup - bt4r.reachtel$PUP
+
+ACTlnpdev.wktrend = loess(bt4r.reachtel$ACTlnpdev~bt4r.reachtel$WEEK, span=0.5)
+ACTalpdev.wktrend = loess(bt4r.reachtel$ACTalpdev~bt4r.reachtel$WEEK, span=0.5)
+ACTgrndev.wktrend = loess(bt4r.reachtel$ACTgrndev~bt4r.reachtel$WEEK, span=0.5)
+ACTpupdev.wktrend = loess(bt4r.reachtel$ACTpupdev~bt4r.reachtel$WEEK, span=0.5)
+
+NTlnpdev.wktrend = loess(bt4r.reachtel$NTlnpdev~bt4r.reachtel$WEEK, span=0.5)
+NTalpdev.wktrend = loess(bt4r.reachtel$NTalpdev~bt4r.reachtel$WEEK, span=0.5)
+NTgrndev.wktrend = loess(bt4r.reachtel$NTgrndev~bt4r.reachtel$WEEK, span=0.5)
+NTpupdev.wktrend = loess(bt4r.reachtel$NTpupdev~bt4r.reachtel$WEEK, span=0.5)
+
+bt4r.weeklyoutput$ACTlnp = bt4r.weeklyoutput$LNP + predict(object = ACTlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$ACTalp = bt4r.weeklyoutput$ALP + predict(object = ACTalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$ACTgrn = bt4r.weeklyoutput$GRN + predict(object = ACTgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$ACTpup = bt4r.weeklyoutput$PUP + predict(object = ACTpupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$ACTpup = ifelse (bt4r.weeklyoutput$ACTpup < 0, 0, bt4r.weeklyoutput$ACTpup)
+bt4r.weeklyoutput$ACToth = 100 - (bt4r.weeklyoutput$ACTlnp + bt4r.weeklyoutput$ACTalp + bt4r.weeklyoutput$ACTgrn + bt4r.weeklyoutput$ACTpup)
+bt4r.weeklyoutput$ACTlnp2 = bt4r.weeklyoutput$ACTlnp + (bt4r.weeklyoutput$ACTgrn * PrefLNP.act[1]) + (bt4r.weeklyoutput$ACTpup * PrefLNP.act[2]) + (bt4r.weeklyoutput$ACToth * PrefLNP.act[3])
+
+bt4r.weeklyoutput$NTlnp = bt4r.weeklyoutput$LNP + predict(object = NTlnpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NTalp = bt4r.weeklyoutput$ALP + predict(object = NTalpdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NTgrn = bt4r.weeklyoutput$GRN + predict(object = NTgrndev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NTpup = bt4r.weeklyoutput$PUP + predict(object = NTpupdev.wktrend,newdata = bt4r.weeklyoutput$WEEK)
+bt4r.weeklyoutput$NTpup = ifelse (bt4r.weeklyoutput$NTpup < 0, 0, bt4r.weeklyoutput$NTpup)
+bt4r.weeklyoutput$NToth = 100 - (bt4r.weeklyoutput$NTlnp + bt4r.weeklyoutput$NTalp + bt4r.weeklyoutput$NTgrn + bt4r.weeklyoutput$NTpup)
+bt4r.weeklyoutput$NTlnp2 = bt4r.weeklyoutput$NTlnp + (bt4r.weeklyoutput$NTgrn * PrefLNP.act[1]) + (bt4r.weeklyoutput$NTpup * PrefLNP.act[2]) + (bt4r.weeklyoutput$NToth * PrefLNP.act[3])
